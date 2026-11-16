@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#123f73">
+<meta name="theme-color" content="#0a0f16">
 <title>PDF 보기</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="viewer">
@@ -16,14 +16,15 @@
   <a class="btn" href="index.html" aria-label="목록으로">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
   </a>
-  <div class="vtitle" id="title">PDF</div>
+  <div class="vtitle"><span class="vcat" id="vcat"></span><span class="vname" id="title">PDF</span></div>
   <a class="btn" id="dl" href="#" download aria-label="PDF 다운로드">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>
   </a>
   <button class="btn" id="zout" type="button" aria-label="축소" disabled>−</button>
   <button class="btn" id="zin" type="button" aria-label="확대" disabled>+</button>
 </header>
-<span class="pageno" id="pageno"></span>
+<button class="pageno" id="pageno" type="button" aria-label="쪽 이동"></button>
+<form class="jump" id="jump" hidden><input id="jn" type="number" inputmode="numeric" enterkeyhint="go" min="1" aria-label="이동할 쪽"><span id="jt"></span></form>
 <div class="pages-wrap" id="wrap"><div class="pages" id="pages"></div></div>
 <div class="vstatus" id="status">PDF를 불러오는 중…</div>
 
@@ -35,6 +36,7 @@
   var file = params.get("f") || "";
   var title = params.get("t") || "PDF";
   $("title").textContent = title;
+  $("vcat").textContent = params.get("c") || "Manual";
   document.title = title + " · 전기기사 매뉴얼";
 
   function fail(head, body) {
@@ -283,6 +285,25 @@
     }
   }, { passive: true });
   wrap.addEventListener("touchcancel", finishPinch, { passive: true });
+
+  /* ---------- 쪽 이동: 아래 쪽 번호를 누르고 숫자를 입력 ---------- */
+  function closeJump() { $("jump").hidden = true; $("pageno").hidden = false; }
+  $("pageno").addEventListener("click", function () {
+    if (!holders.length) return;
+    $("pageno").hidden = true; $("jump").hidden = false;
+    $("jn").max = holders.length; $("jn").value = ""; $("jn").placeholder = current;
+    $("jt").textContent = "/ " + holders.length;
+    $("jn").focus();
+  });
+  $("jump").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var n = Math.max(1, Math.min(holders.length, parseInt($("jn").value, 10) || current));
+    closeJump();
+    var r = holders[n - 1].el.getBoundingClientRect();
+    window.scrollTo(0, window.scrollY + r.top - 10);
+    $("bar").classList.add("hide");
+  });
+  $("jn").addEventListener("blur", function () { setTimeout(closeJump, 120); });
 
   var rt;
   window.addEventListener("resize", function () {
