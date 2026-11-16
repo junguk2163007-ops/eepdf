@@ -35,6 +35,7 @@ jobs:
         run: |
           mkdir _site
           cp -r index.html viewer.html style.css manifest.json lib pdfs _site/
+          sed -i "s/style.css?v=[^\"]*/style.css?v=${GITHUB_SHA::8}/" _site/index.html _site/viewer.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

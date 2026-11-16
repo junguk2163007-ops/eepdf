@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=dev">
 </head>
 <body>
 <header class="top">
@@ -89,13 +89,13 @@
 <!-- hero:end -->
   <div class="top-inner">
     <div class="eyebrow">Electrical Field Manuals</div>
-    <h1>전기기사 <br>매뉴얼 자료실</h1>
-    <p id="count">현장에서 바로 펼쳐 보는 전기 설비 점검·대응 자료</p>
+    <h1>전기기사 매뉴얼 자료실</h1>
+    <p id="count">현장에서 바로 펼쳐 보는 점검·대응 자료</p>
   </div>
 </header>
 <div class="readout-wrap">
   <div class="readout" id="readout" aria-label="자료 현황">
-    <div class="ro"><b id="ro-docs">–</b><span>문서</span></div>
+    <a class="ro ro-link" href="#all" aria-label="전체 문서 보기"><b id="ro-docs">–</b><span>문서 ›</span></a>
     <div class="ro"><b id="ro-cats">–</b><span>분류</span></div>
     <div class="ro"><b id="ro-pages">–</b><span>총 쪽수</span></div>
     <div class="ro"><b id="ro-date">–</b><span>최근 갱신</span></div>
@@ -103,7 +103,7 @@
 </div>
 <div class="search">
   <div class="search-inner">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
     <input id="q" type="search" inputmode="search" enterkeyhint="search" autocomplete="off"
            placeholder="자료 이름으로 찾기" aria-label="자료 검색">
     <button class="clear" id="clear" type="button" aria-label="검색어 지우기" hidden>×</button>
@@ -112,17 +112,18 @@
 <main id="list" aria-live="polite"></main>
 <footer id="foot"><span>전기기사 매뉴얼 자료실</span><span id="foot-r"></span></footer>
 
-<script src="lib/pdf.min.js"></script>
+<script src="lib/pdf.min.js?v=3.11.174"></script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  var state = { items: [], categories: [], cat: "", q: "", sort: "name", generated: "" };
-  var NEW_DAYS = 14, RECENT_MAX = 8, VERSION = "v7";
-  var DL = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>';
+  var state = { items: [], categories: [], cat: "", all: false, filter: "", q: "", sort: "name", view: "grid", generated: "" };
+  var NEW_DAYS = 14, RECENT_MAX = 8, VERSION = "v8";
+  var DL = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>';
   var BACK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
 
   try { state.q = (JSON.parse(sessionStorage.getItem("pdf-lib-state") || "{}").q) || ""; } catch (e) {}
   try { state.sort = localStorage.getItem("pdf-lib-sort") === "new" ? "new" : "name"; } catch (e) {}
+  try { state.view = localStorage.getItem("pdf-lib-view") === "list" ? "list" : "grid"; } catch (e) {}
   function persist() { try { sessionStorage.setItem("pdf-lib-state", JSON.stringify({ q: state.q })); } catch (e) {} }
 
   function esc(s) {
@@ -150,6 +151,7 @@
   function viewerHref(it) {
     return "viewer.html?f=" + encodeURIComponent(it.path) + "&t=" + encodeURIComponent(it.title) + "&c=" + encodeURIComponent(it.category);
   }
+  function dlName(it) { return esc(it.title.replace(/[\\\/:*?"<>|]/g, "_")) + ".pdf"; }
   function sortItems(arr) {
     var a = arr.slice();
     if (state.sort === "new") a.sort(function (x, y) { return x.updated < y.updated ? 1 : x.updated > y.updated ? -1 : 0; });
@@ -217,29 +219,57 @@
     }
   }
 
-  /* ---------- 화면 조각 ---------- */
-  function rowHtml(it, q, showCat) {
+  /* ---------- 문서 표시: 격자(한 줄 2개) / 목록(표지 큰 줄) ---------- */
+  function metaTags(it, withDate) {
     var meta = [];
     if (isNew(it)) meta.push('<span class="tag-new">NEW</span>');
-    if (showCat) meta.push('<span class="tag-cat">' + esc(it.category + (it.sub ? " · " + it.sub : "")) + "</span>");
     if (it.pages) meta.push("<span>" + it.pages + "p</span>");
     meta.push("<span>" + fmtSize(it.size) + "</span>");
-    if (it.updated) meta.push("<span>" + fmtDate(it.updated) + "</span>");
-    var fname = esc(it.title.replace(/[\\\/:*?"<>|]/g, "_")) + ".pdf";
+    if (withDate && it.updated) meta.push("<span>" + fmtDate(it.updated) + "</span>");
+    return meta;
+  }
+  function tileHtml(it, q, showCat) {
+    return '<li class="tile"><a class="tile-main" href="' + esc(viewerHref(it)) + '">' +
+      (showCat ? '<span class="tile-cat">' + esc(it.category + (it.sub ? " · " + it.sub : "")) + "</span>" : "") +
+      '<span class="tile-title">' + highlight(it.title, q) + "</span>" +
+      '<span class="tile-meta">' + metaTags(it, false).join("") + "</span></a>" +
+      '<a class="tile-dl" href="' + esc(it.path) + '" download="' + dlName(it) + '" aria-label="' + esc(it.title) + ' 다운로드">' + DL + "</a></li>";
+  }
+  function rowHtml(it, q, showCat) {
+    var meta = metaTags(it, true);
+    if (showCat) meta.splice(isNew(it) ? 1 : 0, 0, '<span class="tag-cat">' + esc(it.category + (it.sub ? " · " + it.sub : "")) + "</span>");
     return '<li><a class="item" href="' + esc(viewerHref(it)) + '">' +
       '<span class="thumb" aria-hidden="true"' + thumbAttrs(it) + "></span>" +
       '<span><span class="item-title">' + highlight(it.title, q) + '</span><span class="item-meta">' + meta.join("") + "</span></span></a>" +
-      '<a class="dl-btn" href="' + esc(it.path) + '" download="' + fname + '" aria-label="' + esc(it.title) + ' 다운로드">' + DL + "저장</a></li>";
+      '<a class="dl-btn" href="' + esc(it.path) + '" download="' + dlName(it) + '" aria-label="' + esc(it.title) + ' 다운로드">' + DL + "저장</a></li>";
   }
   function listHtml(items, q, showCat) {
+    if (state.view === "grid") return '<ul class="grid">' + items.map(function (it) { return tileHtml(it, q, showCat); }).join("") + "</ul>";
     return '<ul class="list">' + items.map(function (it) { return rowHtml(it, q, showCat); }).join("") + "</ul>";
   }
   function emptyHtml(head, body) { return '<div class="empty"><strong>' + head + "</strong>" + body + "</div>"; }
 
+  function toolbar(sortLabel) {
+    var h = '<div class="toolbar"><div class="seg" role="group" aria-label="보기 방식">' +
+      '<button type="button" data-view="grid" aria-pressed="' + (state.view === "grid") + '">격자</button>' +
+      '<button type="button" data-view="list" aria-pressed="' + (state.view === "list") + '">목록</button></div>';
+    if (sortLabel) {
+      h += '<div class="seg" role="group" aria-label="정렬">' +
+        '<button type="button" data-sort="name" aria-pressed="' + (state.sort === "name") + '">' + sortLabel + "</button>" +
+        '<button type="button" data-sort="new" aria-pressed="' + (state.sort === "new") + '">최신순</button></div>';
+    }
+    return h + "</div>";
+  }
+  function tabsHtml(active) {
+    return '<nav class="tabs" aria-label="보기">' +
+      '<a href="#"' + (active === "home" ? ' aria-current="page"' : "") + ">분류</a>" +
+      '<a href="#all"' + (active === "all" ? ' aria-current="page"' : "") + '>전체 문서 <i>' + state.items.length + "</i></a></nav>";
+  }
+
   function homeView() {
     var by = {};
     state.items.forEach(function (it) { (by[it.category] = by[it.category] || []).push(it); });
-    var html = '<section class="sec"><div class="sec-h"><h2>분류</h2><span class="mono">' + pad(state.categories.length) + "</span></div><div class=\"cat-grid\">" +
+    var html = tabsHtml("home") + '<section class="sec"><div class="sec-h"><h2>분류</h2><span class="mono">' + pad(state.categories.length) + "</span></div><div class=\"cat-grid\">" +
       state.categories.map(function (c, i) {
         var docs = by[c] || [];
         var fan = docs.slice(0, 3).map(function (d, j) { return '<span class="thumb f' + (j + 1) + '"' + thumbAttrs(d) + "></span>"; }).join("");
@@ -251,7 +281,7 @@
 
     var recent = state.items.slice().sort(function (a, b) { return a.updated < b.updated ? 1 : a.updated > b.updated ? -1 : 0; }).slice(0, RECENT_MAX);
     if (recent.length) {
-      html += '<section class="sec"><div class="sec-h"><h2>최근 추가</h2><span class="mono">' + pad(recent.length) + '</span></div><div class="rail">' +
+      html += '<section class="sec"><div class="sec-h"><h2>최근 추가</h2><a class="more" href="#all">전체 문서 ›</a></div><div class="rail">' +
         recent.map(function (it, i) {
           return '<a class="rc rise" style="--i:' + (i + 3) + '" href="' + esc(viewerHref(it)) + '">' +
             '<span class="thumb" aria-hidden="true"' + thumbAttrs(it) + ">" + (isNew(it) ? '<span class="tag-new">NEW</span>' : "") + "</span>" +
@@ -261,10 +291,25 @@
     return html;
   }
 
-  function sortBar() {
-    return '<div class="toolbar"><span class="lbl">SORT</span><div class="seg" role="group" aria-label="정렬">' +
-      '<button type="button" data-sort="name" aria-pressed="' + (state.sort === "name") + '">이름순</button>' +
-      '<button type="button" data-sort="new" aria-pressed="' + (state.sort === "new") + '">최신순</button></div></div>';
+  /* 전체 문서: 분류에 들어가지 않고 한 번에 보기 */
+  function allView() {
+    var f = state.filter, counts = {};
+    state.items.forEach(function (it) { counts[it.category] = (counts[it.category] || 0) + 1; });
+    var chips = '<div class="chips" role="group" aria-label="분류 필터"><button class="chip" type="button" data-filter="" aria-pressed="' + (!f) + '">전체 <i>' + state.items.length + "</i></button>" +
+      state.categories.map(function (c) {
+        return '<button class="chip" type="button" data-filter="' + esc(c) + '" aria-pressed="' + (f === c) + '">' + esc(c) + " <i>" + (counts[c] || 0) + "</i></button>";
+      }).join("") + "</div>";
+    var html = tabsHtml("all") + chips + toolbar("분류별");
+    var scope = f ? state.items.filter(function (it) { return it.category === f; }) : state.items;
+    if (f || state.sort === "new" || state.categories.length < 2) {
+      html += listHtml(sortItems(scope), "", !f);
+    } else {
+      state.categories.forEach(function (c) {
+        var g = scope.filter(function (it) { return it.category === c; });
+        if (g.length) html += '<div class="grp-h">' + esc(c) + "<span>" + pad(g.length) + "</span></div>" + listHtml(g, "", false);
+      });
+    }
+    return html;
   }
 
   function categoryView(items) {
@@ -272,7 +317,7 @@
     var latest = items.reduce(function (m, it) { return it.updated > m ? it.updated : m; }, "");
     var html = '<a class="crumb" href="#">' + BACK + "전체 분류</a>" +
       '<header class="cat-head"><span class="kicker">Category ' + pad(idx) + "</span><h2>" + esc(state.cat) + "</h2>" +
-      "<p>" + pad(items.length) + " DOCS" + (latest ? " · UPDATED " + fmtDate(latest) : "") + "</p></header>" + sortBar();
+      "<p>" + pad(items.length) + " DOCS" + (latest ? " · UPDATED " + fmtDate(latest) : "") + "</p></header>" + toolbar("이름순");
     var loose = sortItems(items.filter(function (it) { return !it.sub; }));
     var subs = {}, order = [];
     items.forEach(function (it) { if (it.sub) { if (!subs[it.sub]) { subs[it.sub] = []; order.push(it.sub); } subs[it.sub].push(it); } });
@@ -288,25 +333,27 @@
 
   function render() {
     var q = norm(state.q.trim());
-    document.body.classList.toggle("compact", !!(state.cat || q));
+    var mode = q ? "search" : state.cat ? "category" : state.all ? "all" : "home";
+    if (mode === "home" && state.categories.length < 2) mode = "all";
+    document.body.classList.toggle("compact", mode !== "home");
     $("q").placeholder = state.cat ? state.cat + " 안에서 찾기" : "자료 이름으로 찾기";
     if (!state.items.length) {
       $("list").innerHTML = emptyHtml("아직 등록된 PDF가 없어요", "pdfs 폴더에 PDF를 올리면 여기에 나타납니다.");
       return;
     }
     var scope = state.cat ? state.items.filter(function (it) { return it.category === state.cat; }) : state.items;
-    if (q) {
+    if (mode === "search") {
       var hits = scope.filter(function (it) {
         return norm(it.title).indexOf(q) >= 0 || norm(it.category).indexOf(q) >= 0 || norm(it.sub || "").indexOf(q) >= 0;
       });
       var head = '<header class="cat-head"><span class="kicker">Search</span><h2>검색 결과</h2><p>' + (state.cat ? esc(state.cat) + " · " : "") + pad(hits.length) + " DOCS</p></header>";
       $("list").innerHTML = hits.length
-        ? head + listHtml(hits, q, true)
+        ? head + toolbar("") + listHtml(hits, q, true)
         : emptyHtml("찾는 자료가 없어요", "다른 단어로 검색해 보세요." + (state.cat ? '<br><a class="crumb" href="#">전체 분류에서 찾기</a>' : ""));
-    } else if (state.cat) {
+    } else if (mode === "category") {
       $("list").innerHTML = scope.length ? categoryView(scope) : emptyHtml("이 분류에는 PDF가 없어요", '<a class="crumb" href="#">전체 분류로 돌아가기</a>');
-    } else if (state.categories.length < 2) {
-      $("list").innerHTML = sortBar() + listHtml(sortItems(state.items), "", false);
+    } else if (mode === "all") {
+      $("list").innerHTML = allView();
     } else {
       $("list").innerHTML = homeView();
     }
@@ -314,17 +361,24 @@
   }
 
   function syncHash() {
-    var m = location.hash.match(/^#cat=(.+)$/), c = "";
+    var h = location.hash, m = h.match(/^#cat=(.+)$/), c = "";
     try { c = m ? decodeURIComponent(m[1]) : ""; } catch (e) {}
     state.cat = state.categories.indexOf(c) >= 0 ? c : "";
+    state.all = h === "#all";
   }
   window.addEventListener("hashchange", function () { syncHash(); render(); window.scrollTo(0, 0); });
 
   $("list").addEventListener("click", function (e) {
-    var b = e.target.closest("[data-sort]");
-    if (!b) return;
-    state.sort = b.getAttribute("data-sort");
-    try { localStorage.setItem("pdf-lib-sort", state.sort); } catch (err) {}
+    var t;
+    if ((t = e.target.closest("[data-sort]"))) {
+      state.sort = t.getAttribute("data-sort");
+      try { localStorage.setItem("pdf-lib-sort", state.sort); } catch (err) {}
+    } else if ((t = e.target.closest("[data-view]"))) {
+      state.view = t.getAttribute("data-view");
+      try { localStorage.setItem("pdf-lib-view", state.view); } catch (err) {}
+    } else if ((t = e.target.closest("[data-filter]"))) {
+      state.filter = t.getAttribute("data-filter");
+    } else return;
     render();
   });
   $("q").addEventListener("input", function () {
