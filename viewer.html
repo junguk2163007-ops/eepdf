@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#123f73">
+<title>PDF 보기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="viewer">
+<div class="progress" id="progress"></div>
+<header class="vbar" id="bar">
+  <a class="btn" href="index.html" aria-label="목록으로">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+  </a>
+  <div class="vtitle" id="title">PDF</div>
+  <a class="btn" id="dl" href="#" download aria-label="PDF 다운로드">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>
+  </a>
+  <button class="btn" id="zout" type="button" aria-label="축소" disabled>−</button>
+  <button class="btn" id="zin" type="button" aria-label="확대" disabled>+</button>
+</header>
+<span class="pageno" id="pageno"></span>
+<div class="pages-wrap" id="wrap"><div class="pages" id="pages"></div></div>
+<div class="vstatus" id="status">PDF를 불러오는 중…</div>
+
+<script src="lib/pdf.min.js"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var params = new URLSearchParams(location.search);
+  var file = params.get("f") || "";
+  var title = params.get("t") || "PDF";
+  $("title").textContent = title;
+  document.title = title + " · 전기기사 매뉴얼";
+
+  function fail(head, body) {
+    $("status").hidden = false;
+    $("status").innerHTML = "<strong>" + head + "</strong>" + body +
+      '<br><a href="index.html">목록으로 돌아가기</a>';
+  }
+
+  // pdfs/ 폴더 밖의 주소는 열지 않는다
+  if (!/^pdfs\/[^:]+\.pdf$/i.test(file) || file.indexOf("..") >= 0) {
+    fail("열 수 있는 PDF가 아니에요", "목록에서 다시 선택해 주세요.");
+    return;
+  }
+  var url = new URL(file, location.href).href;
+
+  // 다운로드 버튼: 원본 PDF 파일을 그대로 저장한다
+  $("dl").href = file;
+  $("dl").setAttribute("download", title.replace(/[\\\/:*?"<>|]/g, "_") + ".pdf");
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "lib/pdf.worker.min.js";
+
+  var MINZ = 1, MAXZ = 8;          // 확대 범위 (배)
+  var MAXPIX = 8e6;                // 캔버스 한 장의 최대 픽셀 수 (휴대폰 메모리 보호)
+  var pdf = null, zoom = 1;
+  var holders = [], rendered = {}, observer = null, current = 1;
+
+  // 화면 화소 수(dpr)에 맞춰 그린다. 저해상도 화면도 2배로 그려서 확대 시 덜 뭉개진다.
+  function wantOut() { return Math.min(Math.max(window.devicePixelRatio || 1, 2), 3); }
+  function baseOut(cssW, cssH) { return Math.max(0.75, Math.min(wantOut(), Math.sqrt(MAXPIX / (cssW * cssH)))); }
+
+  function availWidth() { return Math.min(document.documentElement.clientWidth, 900); }
+
+  function layout() {
+    var w = Math.round(availWidth() * zoom);
+    holders.forEach(function (h) {
+      h.el.style.width = w + "px";
+      h.el.style.height = Math.round(w * h.ratio) + "px";
+    });
+  }
+
+  /* ---------- 쪽 그리기: 확대한 크기에 맞춰 다시 그려서 선명하게 ---------- */
+  function renderPage(n) {
+    var h = holders[n - 1];
+    var stamp = h.el.style.width;
+    if (rendered[n] === stamp) return;
+    if (h.task) { try { h.task.cancel(); } catch (e) {} h.task = null; }
+    rendered[n] = stamp;
+    pdf.getPage(n).then(function (page) {
+      if (rendered[n] !== stamp) return;
+      var cssW = parseFloat(h.el.style.width), cssH = parseFloat(h.el.style.height);
+      var vp1 = page.getViewport({ scale: 1 });
+      var out = baseOut(cssW, cssH);
+      var vp = page.getViewport({ scale: (cssW / vp1.width) * out });
+      var canvas = document.createElement("canvas");
+      canvas.className = "base";
+      canvas.width = Math.floor(vp.width);
+      canvas.height = Math.floor(vp.height);
+      var task = page.render({ canvasContext: canvas.getContext("2d"), viewport: vp });
+      h.task = task;
+      return task.promise.then(function () {
+        if (rendered[n] !== stamp) { canvas.width = canvas.height = 0; return; }
+        h.task = null;
+        var old = h.el.querySelector("canvas.base");
+        if (old) { old.width = old.height = 0; old.remove(); }
+        h.el.insertBefore(canvas, h.el.firstChild);
+        var ph = h.el.querySelector(".ph"); if (ph) ph.remove();
+        page.cleanup();
+      });
+    }).catch(function (e) {
+      if (!e || e.name !== "RenderingCancelledException") { if (rendered[n] === stamp) rendered[n] = null; }
+    });
+  }
+
+  // 멀리 지나간 쪽은 비워서 메모리를 돌려준다 (쪽수가 많은 PDF 대비)
+  function freePage(n) {
+    var h = holders[n - 1];
+    if (h.task) { try { h.task.cancel(); } catch (e) {} h.task = null; }
+    clearDetail(h);
+    var c = h.el.querySelector("canvas.base");
+    if (c) {
+      c.width = c.height = 0; c.remove();
+      var ph = document.createElement("div");
+      ph.className = "ph"; ph.textContent = n + "쪽";
+      h.el.appendChild(ph);
+    }
+    rendered[n] = null;
+  }
+
+  /* ---------- 고해상도 타일 ----------
+     많이 확대했을 때는 페이지 전체를 한 장으로 그리면 해상도가 제한되므로,
+     지금 화면에 보이는 부분만 화면 화소 그대로 따로 그려서 위에 얹는다. */
+  var detailTimer;
+  function scheduleDetail() { clearTimeout(detailTimer); detailTimer = setTimeout(updateDetails, 180); }
+  function clearDetail(h) {
+    if (h.dtask) { try { h.dtask.cancel(); } catch (e) {} h.dtask = null; }
+    if (h.dcanvas) { h.dcanvas.width = h.dcanvas.height = 0; h.dcanvas.remove(); h.dcanvas = null; }
+    h.dkey = null; h.dtile = null;
+  }
+  function updateDetails() {
+    if (!pdf || pinch) return;
+    var vw = window.innerWidth, vh = window.innerHeight;
+    holders.forEach(function (h, i) {
+      var r = h.el.getBoundingClientRect(), cssW = r.width, cssH = r.height;
+      var visible = r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw;
+      if (!visible || baseOut(cssW, cssH) >= wantOut() - 0.05) { clearDetail(h); return; }
+      var vx0 = Math.max(0, -r.left), vy0 = Math.max(0, -r.top);
+      var vx1 = Math.min(cssW, vw - r.left), vy1 = Math.min(cssH, vh - r.top);
+      var t = h.dtile;
+      if (t && t.w === Math.round(cssW) && t.x0 <= vx0 && t.y0 <= vy0 && t.x1 >= vx1 && t.y1 >= vy1) return; // 이미 덮고 있음
+      var mx = vw * 0.25, my = vh * 0.25;
+      var x0 = Math.floor(Math.max(0, vx0 - mx)), y0 = Math.floor(Math.max(0, vy0 - my));
+      var x1 = Math.ceil(Math.min(cssW, vx1 + mx)), y1 = Math.ceil(Math.min(cssH, vy1 + my));
+      var tw = x1 - x0, th = y1 - y0;
+      if (tw <= 0 || th <= 0) { clearDetail(h); return; }
+      if (h.dtask) { try { h.dtask.cancel(); } catch (e) {} h.dtask = null; }
+      var key = [Math.round(cssW), x0, y0, tw, th].join(",");
+      h.dkey = key;
+      pdf.getPage(i + 1).then(function (page) {
+        if (h.dkey !== key) return;
+        var vp1 = page.getViewport({ scale: 1 });
+        var out = Math.min(wantOut(), Math.sqrt(MAXPIX / (tw * th)));
+        var vp = page.getViewport({ scale: (cssW / vp1.width) * out });
+        var c = document.createElement("canvas");
+        c.className = "detail";
+        c.width = Math.ceil(tw * out); c.height = Math.ceil(th * out);
+        c.style.left = x0 + "px"; c.style.top = y0 + "px";
+        c.style.width = tw + "px"; c.style.height = th + "px";
+        var task = page.render({ canvasContext: c.getContext("2d"), viewport: vp, transform: [1, 0, 0, 1, -x0 * out, -y0 * out] });
+        h.dtask = task;
+        return task.promise.then(function () {
+          if (h.dkey !== key) { c.width = c.height = 0; return; }
+          h.dtask = null;
+          var old = h.dcanvas;
+          h.el.appendChild(c); h.dcanvas = c;
+          h.dtile = { w: Math.round(cssW), x0: x0, y0: y0, x1: x1, y1: y1 };
+          if (old) { old.width = old.height = 0; old.remove(); }
+          page.cleanup();
+        });
+      }).catch(function () { if (h.dkey === key) h.dkey = null; });
+    });
+  }
+
+  function watch() {
+    if (observer) observer.disconnect();
+    observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        var n = Number(en.target.getAttribute("data-n"));
+        if (en.isIntersecting) renderPage(n); else freePage(n);
+      });
+      updateCurrent();
+    }, { rootMargin: "100% 0px" });
+    holders.forEach(function (h) { observer.observe(h.el); });
+  }
+
+  function updateCurrent() {
+    var mid = window.innerHeight * 0.4, best = current;
+    for (var i = 0; i < holders.length; i++) {
+      var r = holders[i].el.getBoundingClientRect();
+      if (r.top <= mid && r.bottom > mid) { best = i + 1; break; }
+    }
+    current = best;
+    $("pageno").textContent = current + " / " + holders.length;
+  }
+
+  var lastY = window.scrollY;
+  window.addEventListener("scroll", function () {
+    updateCurrent(); scheduleDetail();
+    var y = window.scrollY, bar = $("bar");
+    if (y < 60 || y < lastY - 6) bar.classList.remove("hide");
+    else if (y > lastY + 6) bar.classList.add("hide");
+    lastY = y;
+  }, { passive: true });
+
+  /* ---------- 확대/축소 ----------
+     (fx,fy) 지점의 내용이 확대 후 (tx,ty) 위치에 오도록 스크롤을 맞춘다. */
+  function updateButtons() {
+    $("zout").disabled = zoom <= MINZ + 0.001;
+    $("zin").disabled = zoom >= MAXZ - 0.001;
+  }
+  function setZoom(z, fx, fy, tx, ty) {
+    z = Math.max(MINZ, Math.min(MAXZ, z));
+    if (Math.abs(z - zoom) < 0.001) return;
+    var pr = $("pages").getBoundingClientRect();
+    var ox = fx - pr.left, oy = fy - pr.top, docTop = pr.top + window.scrollY;
+    var r = z / zoom;
+    zoom = z;
+    holders.forEach(clearDetail);
+    layout();
+    $("wrap").scrollLeft = ox * r - tx;
+    window.scrollTo(0, docTop + oy * r - ty);
+    watch();
+    updateButtons();
+    scheduleDetail();
+  }
+  function centerZoom(factor) {
+    var cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+    setZoom(zoom * factor, cx, cy, cx, cy);
+  }
+  $("zin").addEventListener("click", function () { centerZoom(1.5); });
+  $("zout").addEventListener("click", function () { centerZoom(1 / 1.5); });
+
+  /* ---------- 손가락 벌리기(핀치) / 두 번 탭 ---------- */
+  var wrap = $("wrap"); wrap.addEventListener("scroll", scheduleDetail, { passive: true });
+  var pinch = null, pinchEnd = 0, lastTap = { t: 0, x: 0, y: 0 }, start = null;
+  function mid(e) {
+    var a = e.touches[0], b = e.touches[1];
+    return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2, d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) };
+  }
+  wrap.addEventListener("touchstart", function (e) {
+    if (e.touches.length === 2) {
+      var m = mid(e), pg = $("pages"), pr = pg.getBoundingClientRect();
+      pinch = { d0: m.d || 1, fx: m.x, fy: m.y, tx: m.x, ty: m.y, s: 1 };
+      pg.style.transformOrigin = (m.x - pr.left) + "px " + (m.y - pr.top) + "px";
+      pg.style.willChange = "transform";
+    } else if (e.touches.length === 1) {
+      start = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+  }, { passive: true });
+  wrap.addEventListener("touchmove", function (e) {
+    if (!pinch || e.touches.length !== 2) return;
+    e.preventDefault();
+    var m = mid(e);
+    var s = Math.max(MINZ / zoom, Math.min(MAXZ / zoom, m.d / pinch.d0));
+    pinch.s = s; pinch.tx = m.x; pinch.ty = m.y;
+    $("pages").style.transform = "scale(" + s + ")";
+  }, { passive: false });
+  function finishPinch() {
+    if (!pinch) return;
+    var p = pinch; pinch = null; pinchEnd = Date.now();
+    var pg = $("pages");
+    pg.style.transform = ""; pg.style.willChange = "";
+    setZoom(zoom * p.s, p.fx, p.fy, p.tx, p.ty);
+  }
+  wrap.addEventListener("touchend", function (e) {
+    if (pinch) { if (e.touches.length < 2) finishPinch(); return; }
+    if (e.touches.length || !e.changedTouches.length || !start) return;
+    if (Date.now() - pinchEnd < 400) return;
+    var t = e.changedTouches[0];
+    if (Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) return; // 스크롤이었음
+    var now = Date.now();
+    if (now - lastTap.t < 300 && Math.hypot(t.clientX - lastTap.x, t.clientY - lastTap.y) < 30) {
+      lastTap.t = 0;
+      setZoom(zoom > 1.2 ? 1 : 2.5, t.clientX, t.clientY, t.clientX, t.clientY);
+    } else {
+      lastTap = { t: now, x: t.clientX, y: t.clientY };
+    }
+  }, { passive: true });
+  wrap.addEventListener("touchcancel", finishPinch, { passive: true });
+
+  var rt;
+  window.addEventListener("resize", function () {
+    clearTimeout(rt);
+    rt = setTimeout(function () { if (pdf) { holders.forEach(clearDetail); layout(); watch(); scheduleDetail(); } }, 150);
+  });
+
+  /* ---------- 불러오기 ---------- */
+  var task = pdfjsLib.getDocument({ url: url, cMapUrl: "lib/cmaps/", cMapPacked: true });
+  task.onProgress = function (p) {
+    if (p.total) $("progress").style.width = Math.min(100, (p.loaded / p.total) * 100) + "%";
+  };
+  task.promise.then(function (doc) {
+    pdf = doc;
+    $("progress").style.width = "100%";
+    setTimeout(function () { $("progress").style.display = "none"; }, 300);
+    // 모든 쪽의 비율을 미리 구해 자리를 잡아 두면 스크롤 위치가 흔들리지 않는다
+    var ps = [];
+    for (var n = 1; n <= doc.numPages; n++) {
+      ps.push(doc.getPage(n).then(function (p) { var v = p.getViewport({ scale: 1 }); return v.height / v.width; }));
+    }
+    return Promise.all(ps);
+  }).then(function (ratios) {
+    $("status").hidden = true;
+    var box = $("pages");
+    ratios.forEach(function (r, i) {
+      var el = document.createElement("div");
+      el.className = "page";
+      el.setAttribute("data-n", i + 1);
+      el.innerHTML = '<div class="ph">' + (i + 1) + "쪽</div>";
+      box.appendChild(el);
+      holders.push({ el: el, ratio: r, task: null, dtask: null, dcanvas: null, dkey: null, dtile: null });
+    });
+    layout(); watch(); updateCurrent(); updateButtons();
+  }).catch(function (err) {
+    $("progress").style.display = "none";
+    var missing = err && (err.name === "MissingPDFException" || err.status === 404);
+    fail(missing ? "PDF 파일을 찾을 수 없어요" : "PDF를 열지 못했어요",
+      missing ? "파일이 이동되었거나 삭제되었을 수 있어요." :
+      '네트워크 상태를 확인하고 다시 시도해 주세요.<br><a href="' + file + '">PDF 파일 직접 열기</a>');
+  });
+})();
+</script>
+</body>
+</html>
