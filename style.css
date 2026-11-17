@@ -480,3 +480,14 @@ details.sub .grid { padding: 10px; background: var(--surface); border: 1px solid
   .bg-art.l { left: 0; -webkit-mask-image: url(assets/bg-left.svg); mask-image: url(assets/bg-left.svg); -webkit-mask-position: left center; mask-position: left center; }
   .bg-art.r { right: 0; -webkit-mask-image: url(assets/bg-right.svg); mask-image: url(assets/bg-right.svg); -webkit-mask-position: right center; mask-position: right center; }
 }
+
+/* ================= 미분류(정리 대기) ================= */
+.cat-card.inbox { border-style: dashed; border-color: var(--line-2); background: transparent; box-shadow: none; }
+.inbox-tag {
+  font: 500 0.6rem/1 var(--font); font-style: normal; letter-spacing: 0;
+  padding: 3px 7px; border: 1px solid var(--accent); border-radius: 999px; color: var(--accent);
+}
+.inbox-note {
+  margin: -4px 2px 12px; padding: 10px 12px; font-size: 0.8rem; line-height: 1.5; color: var(--ink-2);
+  border: 1px dashed var(--line-2); border-radius: 12px; background: color-mix(in srgb, var(--accent) 8%, transparent);
+}

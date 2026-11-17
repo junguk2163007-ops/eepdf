@@ -6,7 +6,9 @@
 - pdfs/ 안의 PDF를 모두 찾는다. 폴더 이름이 '분류'가 되고, 그 안의 폴더는 '소분류'가 된다.
     pdfs/전기이론/01_옴의법칙.pdf          ->  분류 "전기이론", 제목 "옴의법칙"
     pdfs/전기이론/직류회로/01_키르히호프.pdf ->  분류 "전기이론", 소분류 "직류회로"
-    pdfs/계산공식집.pdf                    ->  분류 "기타",     제목 "계산공식집"
+    pdfs/계산공식집.pdf                    ->  분류 "미분류",   제목 "계산공식집"
+    pdfs/미분류/아무거나.pdf               ->  분류 "미분류"  (분류를 모를 때 여기에 올리면 된다)
+- "미분류"는 항상 맨 뒤에 놓인다. 나중에 해당 분류 폴더로 옮기면 사이트에서도 옮겨진다.
 - 파일 이름 앞의 "01_", "02-" 같은 번호는 정렬에만 쓰고 제목에서는 뺀다.
 - 쪽수는 pypdf가 설치되어 있으면 함께 기록한다 (pip install pypdf). 없어도 동작한다.
 - 표지 이미지(첫 쪽 그림)는 PyMuPDF가 설치되어 있으면 thumbs/ 폴더에 미리 만든다 (pip install pymupdf).
@@ -26,7 +28,7 @@ ROOT = Path(__file__).resolve().parent
 PDF_DIR = ROOT / "pdfs"
 OUT = ROOT / "manifest.json"
 THUMB_DIR = ROOT / "thumbs"
-DEFAULT_CATEGORY = "기타"
+DEFAULT_CATEGORY = "미분류"   # pdfs 바로 아래에 둔 PDF, 또는 pdfs/미분류/ 안의 PDF
 THUMB_SIZES = (("m", 520), ("s", 220))   # 큰 표지(카드·최근 추가) / 작은 표지(분류 카드·목록)
 
 try:
@@ -144,7 +146,8 @@ def main() -> int:
                 "pages": page_count(path),
                 "updated": updated,
                 **({"thumb": thumbs["m"], "thumb_s": thumbs["s"]} if thumbs else {}),
-                "_sort": [natural_key(parts[0]) if len(parts) > 1 else [(2, 0, "")], [natural_key(x) for x in parts[1:-1]], natural_key(parts[-1])],
+                # 미분류는 항상 맨 뒤
+                "_sort": [1 if category == DEFAULT_CATEGORY else 0, natural_key(parts[0]) if len(parts) > 1 else [], [natural_key(x) for x in parts[1:-1]], natural_key(parts[-1])],
             }
         )
 
