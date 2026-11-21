@@ -491,3 +491,18 @@ details.sub .grid { padding: 10px; background: var(--surface); border: 1px solid
   margin: -4px 2px 12px; padding: 10px 12px; font-size: 0.8rem; line-height: 1.5; color: var(--ink-2);
   border: 1px dashed var(--line-2); border-radius: 12px; background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
+
+/* ================= 화면 모드 버튼(자동/라이트/다크) ================= */
+.theme-btn {
+  position: absolute; z-index: 3;
+  top: max(14px, calc(env(safe-area-inset-top, 0px) + 8px));
+  right: max(14px, env(safe-area-inset-right, 0px), calc((100vw - var(--col)) / 2 + 16px));
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 34px; padding: 0 12px 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 999px;
+  background: rgba(4, 11, 25, 0.5); color: #fff;
+  font: 500 0.74rem/1 var(--font); letter-spacing: 0; cursor: pointer;
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+.theme-btn:active { background: rgba(4, 11, 25, 0.75); }
+.theme-btn svg { display: block; }

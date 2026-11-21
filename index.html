@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0a2247">
+<script>try{var t=localStorage.getItem("pdf-lib-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
 <title>전기기사 매뉴얼 자료실</title>
 <meta name="description" content="현장에서 바로 펼쳐 보는 전기 설비 점검·대응 PDF 매뉴얼. 분류별로 찾고 휴대폰에서 바로 열람하세요.">
 <link rel="canonical" href="https://junguk2163007-ops.github.io/eepdf/">
@@ -219,6 +220,7 @@
 </svg>
 </div>
 <!-- hero:end -->
+  <button class="theme-btn" id="theme" type="button" aria-label="화면 모드 바꾸기"><span id="theme-ic" aria-hidden="true"></span><span id="theme-tx">자동</span></button>
   <div class="top-inner">
     <a class="brand" href="./" id="brand" aria-label="전기기사 매뉴얼 자료실 첫 화면으로">
       <div class="eyebrow">Electrical Field Manuals</div>
@@ -251,7 +253,7 @@
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var state = { items: [], categories: [], cat: "", all: false, filter: "", q: "", sort: "name", view: "grid", generated: "" };
-  var NEW_DAYS = 14, RECENT_MAX = 8, VERSION = "v11", INBOX = "미분류";
+  var NEW_DAYS = 14, RECENT_MAX = 8, VERSION = "v12", INBOX = "미분류";
   var DL = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>';
   var BACK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
 
@@ -537,6 +539,30 @@
   });
   $("q").value = state.q;
   $("clear").hidden = !state.q;
+
+  /* ---------- 화면 모드: 자동(기기 설정 따름) → 라이트 → 다크 ---------- */
+  var THEMES = ["auto", "light", "dark"];
+  var THEME_LABEL = { auto: "자동", light: "라이트", dark: "다크" };
+  var ICON = {
+    auto: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor"/></svg>',
+    light: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg>',
+    dark: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5a8.5 8.5 0 1 0 10.7 10.7z"/></svg>'
+  };
+  var theme = "auto";
+  try { var saved = localStorage.getItem("pdf-lib-theme"); if (saved === "light" || saved === "dark") theme = saved; } catch (e) {}
+  function applyTheme() {
+    var root = document.documentElement;
+    if (theme === "auto") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", theme);
+    $("theme-ic").innerHTML = ICON[theme];
+    $("theme-tx").textContent = THEME_LABEL[theme];
+    $("theme").setAttribute("aria-label", "화면 모드: " + THEME_LABEL[theme] + " (누르면 바뀜)");
+  }
+  $("theme").addEventListener("click", function () {
+    theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+    try { if (theme === "auto") localStorage.removeItem("pdf-lib-theme"); else localStorage.setItem("pdf-lib-theme", theme); } catch (e) {}
+    applyTheme();
+  });
+  applyTheme();
 
   // 제목을 누르면 어디서든(검색·분류·전체 문서) 첫 화면으로
   $("brand").addEventListener("click", function (e) {
